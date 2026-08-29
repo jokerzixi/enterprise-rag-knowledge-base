@@ -4,7 +4,7 @@
 
 由于采用标准化的 FastAPI 前后端分离架构，该系统的后端服务可无缝接入 Web 网页端、微信小程序等多端应用。
 
-## 🌟 核心特性 (Core Features)
+## 核心特性 (Core Features)
 
 * **Agentic RAG 工作流 (基于 LangGraph)：**
   * 摒弃传统的线性 RAG，采用图状态机（StateGraph）管理对话流。
@@ -28,7 +28,7 @@
 * **大语言模型与嵌入:** 兼容 DeepSeek / OpenAI API
 * **前端展示:** Vanilla HTML/CSS/JS (原生 Fetch API 与 DOM 渲染)
 
-## 📁 项目结构 (Project Structure)
+## 项目结构 (Project Structure)
 
 ```text
 RAG_PROJECT/
