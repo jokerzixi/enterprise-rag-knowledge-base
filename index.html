@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>企业知识库 AI 助手</title>
+    <style>
+        /* CSS 样式：画出类似微信聊天的界面 */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f0f2f5; margin: 0; display: flex; justify-content: center; height: 100vh; }
+        .chat-container { width: 100%; max-width: 600px; background-color: #fff; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .header { background-color: #0078d4; color: white; padding: 15px; text-align: center; font-weight: bold; font-size: 18px; }
+        .chat-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; background-color: #f7f7f8; }
+        /* 气泡通用样式 */
+        .message { max-width: 80%; padding: 10px 15px; border-radius: 8px; line-height: 1.5; font-size: 15px; word-wrap: break-word; }
+
+        /* 用户气泡（靠右，绿色） */
+        .user-message { align-self: flex-end; background-color: #95ec69; color: #000; border-bottom-right-radius: 2px; }
+
+        /* AI 气泡（靠左，白色） */
+        .ai-message { align-self: flex-start; background-color: #fff; color: #333; border: 1px solid #e5e5e5; border-bottom-left-radius: 2px; }
+
+        /* 底部输入框区域 */
+        .input-area { display: flex; padding: 15px; background-color: #fff; border-top: 1px solid #ddd; }
+        #user-input { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; outline: none; font-size: 15px; }
+        #send-btn { background-color: #0078d4; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 4px; cursor: pointer; font-size: 15px; transition: 0.2s; }
+        #send-btn:hover { background-color: #005a9e; }
+        #send-btn:disabled { background-color: #ccc; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="header">企业知识库 AI 助手</div>
+
+    <!-- 聊天记录展示区 -->
+    <div class="chat-box" id="chat-box">
+        <div class="message ai-message">你好！我是企业知识库助手，请问有什么可以帮你？</div>
+    </div>
+
+    <!-- 输入发送区 -->
+    <div class="input-area">
+        <input type="text" id="user-input" placeholder="输入您的问题，例如：什么是EUV光刻机..." onkeypress="handleEnter(event)">
+        <button id="send-btn" onclick="sendMessage()">发送</button>
+    </div>
+</div>
+
+<script>
+    // JavaScript 逻辑：处理点击发送和网络请求
+    const chatBox = document.getElementById('chat-box');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+
+    // 监听回车键发送
+    function handleEnter(event) {
+        if (event.key === 'Enter') {
+            sendMessage();
+        }
+    }
+
+    async function sendMessage() {
+        const text = userInput.value.trim();
+        if (!text) return; // 如果输入为空则不发送
+
+        // 1. 把用户的问题显示在界面上
+        appendMessage(text, 'user-message');
+        userInput.value = ''; // 清空输入框
+
+        // 2. 显示 "思考中..." 并禁用按钮防重复点击
+        const loadingId = appendMessage("思考中，正在检索知识库...", 'ai-message');
+        sendBtn.disabled = true;
+
+        try {
+            // 3. 向你的 FastAPI 后端发送请求
+            const response = await fetch('http://127.0.0.1:8001/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: text })
+            });
+
+            if (!response.ok) {
+                throw new Error('网络响应异常');
+            }
+
+            const data = await response.json();
+
+            // 4. 把后端的回答更新到刚才的 "思考中..." 气泡里
+            updateMessage(loadingId, data.answer);
+
+        } catch (error) {
+            updateMessage(loadingId, "请求失败，请检查后端服务是否已启动。错误信息：" + error.message);
+        } finally {
+            // 5. 恢复发送按钮，并将滚动条滚到底部
+            sendBtn.disabled = false;
+            scrollToBottom();
+        }
+    }
+// 在 script 标签的最外层定义一个计数器
+    let msgCount = 0;
+
+    // 找到并替换原有的 appendMessage 函数
+    function appendMessage(text, className) {
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'message ' + className;
+        msgDiv.innerHTML = text.replace(/\n/g, '<br>');
+
+        // 修改这行：加上计数器保证唯一性
+        const id = 'msg-' + Date.now() + '-' + (msgCount++);
+
+        msgDiv.id = id;
+        chatBox.appendChild(msgDiv);
+        scrollToBottom();
+        return id;
+    }
+
+    // 辅助函数：更新某条消息的内容（用于替换“思考中”）
+    function updateMessage(id, newText) {
+        const msgDiv = document.getElementById(id);
+        if (msgDiv) {
+            msgDiv.innerHTML = newText.replace(/\n/g, '<br>');
+        }
+    }
+
+    // 辅助函数：滚动条保持在最底部
+    function scrollToBottom() {
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+</script>
+
+</body>
+</html>

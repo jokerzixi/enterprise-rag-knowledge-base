@@ -1,0 +1,17 @@
+# 环境变量与配置（绝不能公开你的 DeepSeek/OpenAI API Key）
+.env
+
+# Python 虚拟环境与缓存
+venv/
+rag_env/
+__pycache__/
+*.pyc
+
+# 数据库与日志
+*.log
+milvus_data/
+volumes/
+
+# IDE 配置文件
+.idea/
+.vscode/
