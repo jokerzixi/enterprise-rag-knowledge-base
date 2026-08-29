@@ -20,7 +20,7 @@
   * 使用 `SemanticChunker` 结合百分位数阈值进行细粒度语义切片。
   * 自动补全缺失的元数据（如 `title`, `category_depth`），确保多格式 Markdown 文件的稳定向量化入库。
 
-## 🛠️ 技术栈 (Tech Stack)
+## 技术栈 (Tech Stack)
 
 * **应用层与工作流:** LangChain, LangGraph, LangSmith (可观测性)
 * **后端 Web 框架:** FastAPI, Uvicorn
