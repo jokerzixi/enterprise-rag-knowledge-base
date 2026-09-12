@@ -17,8 +17,13 @@ class GradeAnswer(BaseModel):
 structured_llm_grader = llm.with_structured_output(GradeAnswer,method="function_calling")  # 绑定结构化输出到评分模型
 
 # 提示词模板
-system = """您是一个评估回答是否解决用户问题的评分器。\n
-     给出'yes'或'no'的二元评分。'yes'表示:回答确实解决了该问题。"""
+system = """您是一个评估回答是否解决用户问题的评分器。
+给出'yes'或'no'的二元评分。
+'yes'表示：回答确实解决了用户的核心问题，给出了实质性信息。
+'no'表示：回答未能解决问题，包括但不限于：
+- 声称无法回答 / 资料不足 / 上下文不够 / 请提供更多内容
+- 只解释了为什么答不了，没有给出用户真正需要的答案
+- 答非所问或信息明显残缺"""
 answer_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", system),  # 系统角色设定

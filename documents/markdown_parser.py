@@ -11,30 +11,54 @@ class MarkdownParser:
     """
     专门负责markdown文件的解析和切片
     """
+    # Milvus text 字段 max_length=6000，留余量避免超限
+    MAX_TEXT_LEN = 5500
+
     def __init__(self):
         self.text_splitter = SemanticChunker(
             openai_embedding, breakpoint_threshold_type="percentile"
         )
 
+    @staticmethod
+    def _hard_split(doc: Document, max_len: int) -> List[Document]:
+        """按字符硬切，保证单块不超过 Milvus VARCHAR 上限。"""
+        text = doc.page_content or ""
+        if len(text) <= max_len:
+            return [doc]
+        parts: List[Document] = []
+        start = 0
+        while start < len(text):
+            end = min(start + max_len, len(text))
+            if end < len(text):
+                # 尽量在空白处断开，避免切断单词/公式中间
+                cut = text.rfind(" ", start, end)
+                if cut > start + max_len // 2:
+                    end = cut
+            chunk = text[start:end].strip()
+            if chunk:
+                parts.append(Document(page_content=chunk, metadata=dict(doc.metadata)))
+            start = end if end > start else start + max_len
+        return parts or [doc]
+
     def text_chunker(self, datas: List[Document]) -> List[Document]:
-        new_docs = []
+        new_docs: List[Document] = []
         for d in datas:
             if len(d.page_content) > 5000:  # 内容超出了阈值，则按照语义再切割
                 new_docs.extend(self.text_splitter.split_documents([d]))
-                continue
-            new_docs.append(d)
+            else:
+                new_docs.append(d)
 
-            # === 补全所有可能缺失的元数据字段 ===
-            for doc in new_docs:
-                if 'title' not in doc.metadata:
-                    doc.metadata['title'] = ""
-                if 'category_depth' not in doc.metadata:
-                    doc.metadata['category_depth'] = 0  # 默认层级深度为 0
-                if 'category' not in doc.metadata:
-                    doc.metadata['category'] = "NarrativeText"
-            # ===================================
+        # 语义切分后仍可能超限，再硬切到 MAX_TEXT_LEN
+        capped: List[Document] = []
+        for doc in new_docs:
+            capped.extend(self._hard_split(doc, self.MAX_TEXT_LEN))
 
-        return new_docs
+        for doc in capped:
+            doc.metadata.setdefault("title", "")
+            doc.metadata.setdefault("category_depth", 0)
+            doc.metadata.setdefault("category", "NarrativeText")
+
+        return capped
 
 
     def parse_markdown_to_documents(self, md_file: str, encoding='utf-8') -> List[Document]:

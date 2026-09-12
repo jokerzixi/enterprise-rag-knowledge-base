@@ -18,51 +18,53 @@ from utils.log_utils import log
 
 def grade_generation_v_documents_and_question(state):
     """
-    评估生成结果是否基于文档并正确回答问题
-    Args:
-        state (dict): 当前图状态，包含问题、文档和生成结果
-    Returns:
-        str: 下一节点的名称（useful/not useful/not supported）
+    评估生成结果是否基于文档并正确回答问题。
+    兜底策略：
+    - 本地有文档但回答仍解决不了问题（改写重试后仍不行）→ 转 web_search（Tavily）
+    - 已走联网仍不行 → 强制输出当前结果，避免死循环
     """
-    log.info("---检查生成内容是否存在幻觉---")  # 阶段标识
-    question = state["question"]  # 获取用户问题
-    documents = state["documents"]  # 获取参考文档
-    generation = state["generation"]  # 获取生成结果
-
-
-    # 增加提取 transform_count 的逻辑
+    log.info("---检查生成内容是否存在幻觉---")
+    question = state["question"]
+    documents = state["documents"]
+    generation = state["generation"]
     transform_count = state.get("transform_count", 0)
+    searched_web = state.get("searched_web", False)
 
-    # 检查生成是否基于文档
     score = hallucination_grader_chain.invoke({"documents": documents, "generation": generation})
     grade = score.binary_score
 
-    if grade == "yes":  # 如果生成基于文档
+    if grade == "yes":
         log.info("---判定：生成内容基于参考文档---")
-        # 检查是否准确回答问题
         log.info("---评估：生成回答与问题的匹配度---")
         score = answer_grader_chain.invoke({"question": question, "generation": generation})
         grade = score.binary_score
-        if grade == "yes":  # 如果正确回答问题
+        if grade == "yes":
             log.info("---判定：生成内容准确回答问题---")
-            return "useful"  # 返回有用结果
-        else:  # 如果没有回答问题
-            # === 新增：质量校验熔断机制 ===
+            return "useful"
+
+        # 回答未解决问题（例如“上下文不足无法回答”）
+        log.info("---判定：生成内容未能准确回答问题---")
+        if searched_web:
             if transform_count >= 2:
-                log.warning("---警告：多次重写仍无法让裁判满意，触发熔断，强制输出当前最佳结果---")
-                return "useful"  # 假装成功，强行结束循环输出给用户
-            else:
-                log.info("---判定：生成内容未能准确回答问题---")
-                return "not useful"  # 返回无用结果，进入 transform_query
-    else:  # 如果生成不基于文档
-        # === 新增：幻觉校验熔断机制 ===
-        if transform_count >= 2:
-            log.warning("---警告：多次生成均产生幻觉，触发熔断，转交给网络搜索---")
+                log.warning("---警告：联网后仍不满意，强制输出---")
+                return "useful"
+            return "not useful"
+        # 本地路径：先改写重试一次，仍不行则 Tavily 兜底
+        if transform_count >= 1:
+            log.info("---决策：本地依据不足，转为 Tavily 联网搜索---")
             return "web_search"
+        return "not useful"
 
-        log.info("---判定：生成内容未基于参考文档，将重新尝试---")
-        return "not supported"  # 退回 generate 节点重新生成
+    # 生成不基于文档
+    if transform_count >= 2:
+        if searched_web:
+            log.warning("---警告：联网多次生成质量不佳，强制输出---")
+            return "useful"
+        log.warning("---警告：本地生成未基于文档且多次失败，转为联网搜索---")
+        return "web_search"
 
+    log.info("---判定：生成内容未基于参考文档，将重新尝试---")
+    return "not supported"
 
 def decide_to_generate(state):
     """
@@ -185,7 +187,9 @@ if __name__ == '__main__':
         else:
             inputs = {
                 "question": question,
-                "transform_count": 0
+                "transform_count": 0,
+                "searched_web": False,
+                "chat_history": "",
             }
             # 流式执行工作流
             for output in graph.stream(inputs):

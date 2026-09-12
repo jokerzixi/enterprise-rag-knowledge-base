@@ -11,7 +11,17 @@ __pycache__/
 *.log
 milvus_data/
 volumes/
+datas/sessions.db
+*.db
 
-# IDE 配置文件
+# 评测产出（可本地生成）
+eval/ragas_report.json
+
+# IDE / 本地 Agent 配置
 .idea/
 .vscode/
+.cursor/
+.agents/
+
+# 大型原始语料（按需自行管理，勿误传密钥）
+# datas/raw/*.pdf

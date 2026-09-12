@@ -10,5 +10,5 @@ llm = ChatOpenAI(
     base_url="https://api.deepseek.com")
 
 
-web_search_tool = TavilySearchResults(max_results=2)
+web_search_tool = TavilySearchResults(max_results=3, include_raw_content=False)
 
