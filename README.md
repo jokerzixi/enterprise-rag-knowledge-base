@@ -307,22 +307,7 @@ python eval/run_ragas.py                            # 含 context_recall / preci
 
 ---
 
-## 上传 GitHub 前检查清单
 
-- [ ] 确认 `.env` 在 `.gitignore` 中，**从未提交真实 Key**
-- [ ] 使用 `.env.example` 作为配置说明
-- [ ] 大体积 PDF / 私有语料是否需要排除或使用 Git LFS
-- [ ] `eval/ragas_report.json`、本地 `*.db`、`.idea/`、`.cursor/` 等已忽略
-- [ ] README 中的端口、集合名与本地一致
-- [ ] 若语料含版权敏感内容，在仓库声明「仅演示 / 请自备授权语料」
-
-建议首次提交命令（自行确认文件列表后再 commit）：
-
-```powershell
-git status
-git add README.md .env.example .gitignore CONTEXT.md docs eval documents graph2 utils tools llm_models main.py index.html requirements.txt datas/raw/README.md
-# 按需添加 datas/md 中可公开的样例，勿添加密钥与私有 PDF
-```
 
 ---
 
