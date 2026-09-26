@@ -123,12 +123,6 @@ pip install "ragas>=0.2.0" datasets redis
 # pip install "laya[serve]"
 ```
 
-### 4. 配置环境变量
-
-```powershell
-copy .env.example .env
-# 编辑 .env，填入真实 Key（切勿提交到 Git）
-```
 
 常用项：
 
