@@ -100,7 +100,6 @@ RAG_PROJECT/
 ├── main.py                 # FastAPI：/chat、/chat/stream、/health、/metrics
 ├── index.html              # 多会话 Web UI
 ├── requirements.txt
-├── .env.example            # 环境变量模板（无密钥；勿提交 .env）
 ├── CONTEXT.md              # 领域术语表
 ├── docs/
 │   ├── adr/                # 架构决策（语料获取、质量冲刺等）
