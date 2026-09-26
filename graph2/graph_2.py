@@ -10,9 +10,11 @@ from graph2.grade_documents_node import grade_documents
 from graph2.grade_hallucinations_chain import hallucination_grader_chain
 from graph2.graph_state2 import GraphState
 from graph2.query_route_chain import question_router_chain
+from graph2.rerank_node import rerank
 from graph2.retriever_node import retrieve
 from graph2.transform_query_node import transform_query
 from graph2.web_search_node import web_search
+from laya.laya_router import route_with_laya
 from utils.log_utils import log
 
 
@@ -94,24 +96,27 @@ def decide_to_generate(state):
 
 def route_question(state):
     """
-    路由问题到网络搜索或RAG流程
-    Args:
-        state (dict): 当前图状态，包含用户问题
-
-    Returns:
-        str: 下一节点的名称（web_search或vectorstore）
+    路由问题到网络搜索或 RAG。
+    优先 Laya System-1 Choice（快路径）；关闭 / 失败 / 低置信度时回退 DeepSeek。
     """
-    log.info("---ROUTE QUESTION---")  # 阶段标识
-    question = state["question"]  # 获取用户问题
-    source = question_router_chain.invoke({"question": question})  # 调用问题路由器
+    log.info("---ROUTE QUESTION---")
+    question = state["question"]
 
-    # 根据路由结果决定下一个节点
-    if source.datasource == "web_search":
-        log.info("---路由到web搜索---")
+    laya_route = route_with_laya(question)
+    if laya_route == "web_search":
+        log.info("---Laya 路由到 web 搜索---")
         return "web_search"
-    elif source.datasource == "vectorstore":
-        log.info("---路由到RAG系统---")
+    if laya_route == "vectorstore":
+        log.info("---Laya 路由到 RAG 系统---")
         return "vectorstore"
+
+    log.info("---使用 DeepSeek LLM 路由（Laya 未启用或已降级）---")
+    source = question_router_chain.invoke({"question": question})
+    if source.datasource == "web_search":
+        log.info("---LLM 路由到 web 搜索---")
+        return "web_search"
+    log.info("---LLM 路由到 RAG 系统---")
+    return "vectorstore"
 
 
 # 初始化工作流图
@@ -120,6 +125,7 @@ workflow = StateGraph(GraphState)
 # 定义各状态节点
 workflow.add_node("web_search", web_search)  # 网络搜索节点
 workflow.add_node("retrieve", retrieve)  # 文档检索节点
+workflow.add_node("rerank", rerank)  # Cross-Encoder 精排节点
 workflow.add_node("grade_documents", grade_documents)  # 文档相关性评分节点
 workflow.add_node("generate", generate)  # 回答生成节点
 workflow.add_node("transform_query", transform_query)  # 查询优化节点
@@ -136,7 +142,8 @@ workflow.add_conditional_edges(
 
 # 添加固定边
 workflow.add_edge("web_search", "generate")  # 网络搜索后直接生成回答
-workflow.add_edge("retrieve", "grade_documents")  # 检索后评估文档相关性
+workflow.add_edge("retrieve", "rerank")  # 检索后由 Cross-Encoder 精排
+workflow.add_edge("rerank", "grade_documents")  # 精排后评估文档相关性
 
 # 文档评估后的条件分支
 workflow.add_conditional_edges(

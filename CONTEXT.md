@@ -51,3 +51,31 @@ _Avoid_: 仅进程内存（重启即丢）
 **知识库引用（KB Citation）**：
 本地回答文末由系统根据检索块 `filename`/`title` 去重列出的溯源列表。
 _Avoid_: 模型自行编造的文件名或外链
+
+**改进目标（Improvement Goal）**：
+当前迭代优先提升检索与回答质量：提高本地命中、降低不必要联网与幻觉，并用 RAGAS 等指标回归验证。
+_Avoid_: 生产级企业控制面（鉴权/多租户）作为本迭代主目标
+
+**质量杠杆（Quality Lever）**：
+为提升回答质量可动的手段，主要包括语料覆盖、切块策略、检索/路由策略三类。
+_Avoid_: 笼统说「优化 RAG」而不指明杠杆
+
+**本周质量冲刺（Quality Sprint）**：
+约一周内以补语料（覆盖弱项工艺概念）为主，并以扩充金标 + RAGAS 回归为验收；检索/路由大改放到后续迭代。
+_Avoid_: 本周同时铺开企业化鉴权与大规模路由重构
+
+**验收标准（Acceptance Bar）**：
+金标集扩到足够条数，弱项题（如 CMP、刻蚀定义类）更多走本地库，且 faithfulness / answer_relevancy 相对基线不滑坡或有提升。
+_Avoid_: 仅凭主观「感觉更好」作为唯一验收
+
+**基础工艺百科（Process Primer）**：
+面向「什么是 X」类问题的短文语料（CMP、刻蚀、沉积、光刻入门等），用于补齐概念空洞；本周语料以百科/FAQ 为主、论文抓取为辅。
+_Avoid_: 仅用 arXiv 长文充当入门定义
+
+**联网率（Web Fallback Rate）**：
+评测集中走 Tavily 联网路径的题目占比；作为本周质量 KPI 之一，与 RAGAS 分数一并观察。
+_Avoid_: 把联网次数当成唯一成功率指标
+
+**Laya 意图路由（Laya Intent Route）**：
+用本地 System-1 模型（Laya Choice）在入口将问题分到 `vectorstore` 或 `web_search`；低置信度或服务不可用时回退 DeepSeek 结构化路由。
+_Avoid_: 用 Laya 直接生成最终答案；未启用不等于路由失效（有 LLM 降级）

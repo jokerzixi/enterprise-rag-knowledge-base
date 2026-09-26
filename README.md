@@ -1,9 +1,11 @@
 # RAG 企业知识库 · 半导体 Adaptive RAG
 
 面向**半导体工艺 / 设备 / 材料**场景的检索增强问答系统：  
-云端 MinerU 解析文档 → Milvus 混合检索 → LangGraph Adaptive RAG（本地不足时 Tavily 联网兜底）→ FastAPI SSE + 多会话 Web UI。
+云端 MinerU 解析 → Milvus 混合检索 →（可选）Laya System-1 快路由 → LangGraph Adaptive RAG（含 Cross-Encoder 精排与纠错熔断；本地不足时 Tavily 联网）→ FastAPI SSE + 多会话 Web UI。
 
-> 当前定位为**可演示的工程原型**（含持久会话、知识库引用、主题抓取、RAGAS 评测）。
+> 定位为**可演示的工程原型**（持久会话、知识库引用、工艺百科语料、RAGAS 评测、可选 Laya 路由）。上生产前请补齐鉴权、限流与合规。
+
+仓库：<https://github.com/jokerzixi/enterprise-rag-knowledge-base>
 
 ---
 
@@ -11,15 +13,16 @@
 
 | 能力 | 说明 |
 |------|------|
-| Adaptive RAG | 问题路由 → 检索 → 文档打分 → 生成 → 幻觉/答案评估 → 改写重试 / 联网 |
-| 混合检索 | Milvus Dense（向量）+ BM25 Sparse，查询扩展后多路合并 |
-| 多轮对话 | 指代消解（contextualize）+ Redis / SQLite 会话记忆 |
-| 多会话 UI | 左侧会话栏，各 `session_id` 上下文互不干扰 |
-| 流式输出 | SSE：`status` / `token` / `done`，支持终止生成 |
-| 知识库引用 | 本地回答文末系统拼接 `filename` / `title`（防模型瞎编链接） |
-| 文档解析入库 | 云端 MinerU（本地上传 / 远程 URL）→ Markdown → 语义切块 → 追加入库 |
-| 主题抓取 | arXiv FEOL 主题包检索 → MinerU 远程解析 → 去重入库 |
-| 质量评估 | RAGAS（faithfulness / answer_relevancy 等） |
+| Adaptive RAG + CRAG | 路由 → 检索 → 精排 → 文档打分 → 生成 → 幻觉/答案评估 → 改写重试 / 联网 |
+| 混合检索 | Milvus Dense（HNSW）+ BM25 Sparse，RRF 融合；查询扩展后多路合并去重 |
+| Cross-Encoder 精排 | DashScope `gte-rerank` 对召回块重排取 Top-N（失败则截断降级） |
+| 可选 Laya 意图路由 | 本地 System-1 `choice` 分流 `vectorstore` / `web_search`；低置信或不可用回退 DeepSeek |
+| 多轮 / 多会话 | 指代消解 + Redis / SQLite 会话记忆；前端侧栏隔离 `session_id` |
+| 流式输出 | SSE：`status` / `token` / `reset` / `done`，支持客户端断开中止 |
+| 知识库引用 | 本地回答由系统按 `filename` / `title` 拼接引用，降低来源编造 |
+| 语料建设 | MinerU 解析、arXiv 主题抓取、`datas/md/primer_*.md` 工艺百科补概念空洞 |
+| 评测 | RAGAS（faithfulness / answer_relevancy）+ `web_fallback_rate` 联网率 KPI |
+| 健康检查 | `GET /health`、`GET /metrics`（Prometheus 文本） |
 
 ---
 
@@ -31,29 +34,35 @@
 │ 多会话前端   │ ◄─────────────── │   FastAPI    │
 └─────────────┘                   └──────┬───────┘
                                          │
-                    ┌────────────────────┼────────────────────┐
-                    ▼                    ▼                    ▼
-            ┌──────────────┐    ┌────────────────┐    ┌─────────────┐
-            │ Redis/SQLite │    │ graph2/        │    │ DeepSeek    │
-            │ 会话记忆      │    │ LangGraph RAG  │───►│ + DashScope │
-            └──────────────┘    └────────┬───────┘    └─────────────┘
-                                         │
-                    ┌────────────────────┼────────────────────┐
-                    ▼                    ▼                    ▼
-              ┌──────────┐        ┌──────────┐         ┌──────────┐
-              │  Milvus  │        │  Tavily  │         │  MinerU  │
-              │ 混合检索  │        │ 联网兜底  │         │ 云端解析  │
-              └──────────┘        └──────────┘         └──────────┘
+          ┌──────────────────────────────┼──────────────────────────────┐
+          ▼                              ▼                              ▼
+   ┌──────────────┐            ┌────────────────┐            ┌─────────────┐
+   │ Redis/SQLite │            │ graph2/        │            │ DeepSeek    │
+   │ 会话记忆      │            │ LangGraph RAG  │───────────►│ + DashScope │
+   └──────────────┘            └────────┬───────┘            └─────────────┘
+                                        │
+          ┌─────────────────────────────┼─────────────────────────────┐
+          ▼                             ▼                             ▼
+    ┌──────────┐                 ┌──────────┐                  ┌──────────┐
+    │  Milvus  │                 │  Tavily  │                  │  MinerU  │
+    │ 混合检索  │                 │ 联网兜底  │                  │ 云端解析  │
+    └──────────┘                 └──────────┘                  └──────────┘
+          ▲
+          │ 可选
+    ┌──────────┐
+    │   Laya   │  System-1 意图路由（默认关闭）
+    └──────────┘
 ```
 
 ### LangGraph 主流程（`graph2/`）
 
 ```mermaid
 flowchart TD
-  START([START]) --> route{问题路由}
+  START([START]) --> route{问题路由<br/>Laya 可选 / DeepSeek 降级}
   route -->|vectorstore| retrieve[检索+查询扩展]
   route -->|web_search| web[Tavily 联网]
-  retrieve --> gradeDocs[文档相关性打分]
+  retrieve --> rerank[gte-rerank 精排]
+  rerank --> gradeDocs[文档相关性打分]
   gradeDocs -->|有相关文档| generate[生成回答]
   gradeDocs -->|无相关且可重试| transform[查询改写]
   gradeDocs -->|无相关且达上限| web
@@ -73,9 +82,10 @@ flowchart TD
 | 层级 | 选型 |
 |------|------|
 | 编排 | LangChain / LangGraph |
-| LLM | DeepSeek Chat（OpenAI 兼容接口） |
-| Embedding | 阿里云百炼 `text-embedding-v3`（DashScope） |
-| 向量库 | Milvus Standalone（Dense + BM25 Sparse） |
+| LLM | DeepSeek Chat（OpenAI 兼容） |
+| Embedding / 精排 | DashScope `text-embedding-v3` / `gte-rerank` |
+| 可选路由 | Laya System-1（`laya[serve]`，HTTP `/v1/systemone`） |
+| 向量库 | Milvus Standalone（Dense HNSW + BM25 Sparse，RRF） |
 | 联网搜索 | Tavily |
 | 文档解析 | MinerU 云端 API |
 | API | FastAPI + SSE |
@@ -83,7 +93,7 @@ flowchart TD
 | 会话 | Redis（推荐）/ SQLite / 内存降级 |
 | 评测 | RAGAS |
 
-Python 建议：**3.11**，Conda 环境名示例：`rag_env`。
+Python 建议：**3.11**，Conda 环境示例：`rag_env`。
 
 ---
 
@@ -91,34 +101,30 @@ Python 建议：**3.11**，Conda 环境名示例：`rag_env`。
 
 ```text
 RAG_PROJECT/
-├── main.py                 # FastAPI：/chat、/chat/stream、清空记忆
+├── main.py                 # FastAPI：/chat、/chat/stream、/health、/metrics
 ├── index.html              # 多会话 Web UI
-├── requirements.txt        # 依赖锁定
-├── .env.example            # 环境变量模板（无密钥）
+├── requirements.txt
+├── .env.example            # 环境变量模板（无密钥；勿提交 .env）
 ├── CONTEXT.md              # 领域术语表
-├── docs/adr/               # 架构决策记录
-├── graph2/                 # Adaptive RAG 图（当前主路径）
-│   ├── graph_2.py          # 图定义与条件边
-│   ├── retriever_node.py   # 查询扩展 + 检索合并
-│   ├── generate_node2.py   # 生成 + 本地引用
-│   ├── web_search_node.py  # Tavily
-│   ├── contextualize_chain.py
-│   └── …_grader / grade_*  # 打分与改写
-├── documents/              # 解析 / 入库 / 抓取
-│   ├── mineru_client.py
-│   ├── mineru_batch.py
-│   ├── topic_crawl.py
-│   ├── markdown_parser.py
-│   └── milvus_db.py
+├── docs/
+│   ├── adr/                # 架构决策（语料获取、质量冲刺等）
+│   └── laya_integration_technical_doc.md
+├── prd/                    # 产品 / 技术 / UI 文档（规划向）
+├── laya/                   # Laya 客户端与意图路由（可选）
+├── graph2/                 # Adaptive RAG 主路径
+│   ├── graph_2.py
+│   ├── retriever_node.py
+│   ├── rerank_node.py      # Cross-Encoder 精排
+│   ├── generate_node2.py
+│   └── …
+├── documents/              # 解析 / 安全建表 / 抓取 / 入库
 ├── tools/retriever_tools.py
-├── llm_models/             # LLM / Embedding 封装
-├── utils/                  # env、日志、会话记忆
-├── eval/                   # RAGAS 金标与评测脚本
+├── eval/                   # 金标（约 15 题）与 RAGAS
 ├── datas/
-│   ├── raw/                # 待解析原始文件
-│   └── md/                 # MinerU / 既有 Markdown
-├── graph/                  # 早期图实验（可参考）
-└── agent/                  # 其它实验代码
+│   ├── raw/                # 待解析原始件
+│   └── md/                 # primer_* 工艺百科、MinerU arXiv MD 等
+├── graph/ · agent/         # 早期实验代码
+└── utils/                  # env、日志、会话记忆
 ```
 
 ---
@@ -127,15 +133,16 @@ RAG_PROJECT/
 
 ### 1. 基础依赖
 
-- Docker Desktop（运行 Milvus）
-- Redis（可选，多会话持久化推荐）
+- Docker Desktop（Milvus）
+- Redis（可选，多会话推荐）
 - Conda / Python 3.11
+- （可选）Laya serve：GPU/CPU 均可
 
 ### 2. 启动 Milvus
 
 ```powershell
 docker start milvus-standalone
-# 首次需按官方文档拉起 standalone；默认 gRPC: 127.0.0.1:19530
+# 首次请按 Milvus 官方文档拉起 standalone；默认 gRPC: 127.0.0.1:19530
 ```
 
 ### 3. Python 环境
@@ -144,8 +151,9 @@ docker start milvus-standalone
 conda activate rag_env
 cd <项目根目录>
 pip install -r requirements.txt
-# 评测额外依赖（若未装）：
 pip install "ragas>=0.2.0" datasets redis
+# 可选 Laya 服务端（与主应用分离进程）
+# pip install "laya[serve]"
 ```
 
 ### 4. 配置环境变量
@@ -155,159 +163,140 @@ copy .env.example .env
 # 编辑 .env，填入真实 Key（切勿提交到 Git）
 ```
 
-必填项通常包括：
+常用项：
 
-- `DEEPSEEK_API_KEY`
-- `DASHSCOPE_API_KEY`
-- `TAVILY_API_KEY`
-- `MINERU_API_TOKEN`（解析入库时）
-- `REDIS_URL` + `SESSION_BACKEND=redis`（推荐）
+| 变量 | 说明 |
+|------|------|
+| `DEEPSEEK_API_KEY` | 对话 / 路由降级 / 打分 / RAGAS |
+| `DASHSCOPE_API_KEY` | Embedding + `gte-rerank` |
+| `TAVILY_API_KEY` | 联网搜索 |
+| `MINERU_API_TOKEN` | 云端解析 |
+| `MILVUS_URI` / `COLLECTION_NAME` | 向量库 |
+| `SESSION_BACKEND` / `REDIS_URL` | 会话持久化 |
+| `LAYA_ENABLED` | 默认 `false`；`true` 时启用 Laya 路由 |
+| `LAYA_SERVER_URL` | 默认 `http://127.0.0.1:8000` |
+| `LAYA_MODEL` | 默认 `convaiinnovations/laya-multilingual` |
+| `LAYA_CONFIDENCE_MIN` | 低于此置信度回退 DeepSeek |
+
+完整模板见 `.env.example`。
 
 ---
 
 ## 快速启动
 
-### 后端
-
 ```powershell
+# 终端 1：后端
 conda activate rag_env
 cd <项目根目录>
 uvicorn main:app --host 127.0.0.1 --port 8001
-```
 
-启动日志中应能看到会话后端，例如：`会话记忆后端: Redis (...)`。
-
-### 前端
-
-另开终端：
-
-```powershell
-cd <项目根目录>
+# 终端 2：前端静态页
 python -m http.server 8080
 ```
 
-浏览器打开：<http://127.0.0.1:8080/index.html>
+浏览器：<http://127.0.0.1:8080/index.html>
 
 | 服务 | 地址 |
 |------|------|
 | Web UI | http://127.0.0.1:8080/index.html |
-| API | http://127.0.0.1:8001 |
+| API / Docs | http://127.0.0.1:8001 · http://127.0.0.1:8001/docs |
+| Health | http://127.0.0.1:8001/health |
 | Milvus | http://127.0.0.1:19530 |
-| Redis | redis://127.0.0.1:6379/0 |
+
+> 部署到公网时请修改 `index.html` 中的 `API_BASE`，或用 Nginx 同域反代 `/chat`（SSE 需关闭 `proxy_buffering`）。
+
+### 可选：启用 Laya 意图路由
+
+```powershell
+# 另开终端
+pip install "laya[serve]"
+$env:LAYA_DEVICE="cuda"   # 或 cpu
+$env:LAYA_PRELOAD="1"
+$env:LAYA_MODELS="multilingual"
+laya-serve
+```
+
+`.env` 设置 `LAYA_ENABLED=true` 后重启 uvicorn。日志出现 `Laya 路由到…` 即生效；服务不可用或低置信度时自动降级 DeepSeek。
 
 ---
 
 ## API 说明
 
-### `POST /chat`
+### `POST /chat` · `POST /chat/stream`
 
-一次性返回完整答案（兼容旧客户端）。
+请求体：`{ "question": "...", "session_id": "可选" }`
 
-```json
-{ "question": "什么是 EUV 光刻？", "session_id": "可选-uuid" }
-```
-
-### `POST /chat/stream`
-
-SSE 事件类型：
-
-| type | 含义 |
-|------|------|
-| `session` | 确认 / 下发 `session_id` |
-| `status` | 节点状态文案（检索中、联网中…） |
-| `reset` | 清空当前流式草稿（进入改写/联网/新一轮生成） |
-| `token` | 回答增量 token |
-| `done` | 最终完整答案 |
-| `aborted` / `error` | 终止或错误 |
+SSE 事件：`session` / `status` / `reset` / `token` / `done` / `aborted` / `error`
 
 ### `DELETE /chat/memory/{session_id}`
 
-清空指定会话在服务端的多轮记忆（不影响其它会话）。
+清空指定会话服务端记忆。
+
+### `GET /health` · `GET /metrics`
+
+组件探活与 Prometheus 风格指标。
 
 ---
 
 ## 语料与入库
 
-### 路径约定
-
 | 路径 | 用途 |
 |------|------|
-| `datas/raw/` | PDF / Office / 图片等原始件 |
-| `datas/md/` | 解析后的 Markdown |
-| Milvus `t_collection01` | 切块后的向量 + BM25 |
-
-### 本地文件批量解析
+| `datas/raw/` | PDF 等原始件 |
+| `datas/md/primer_*.md` | 工艺百科（CMP / 刻蚀 / 光刻 / EUV 等） |
+| `datas/md/mineru_arxiv_*.md` | MinerU 解析的公开论文样例 |
+| Milvus `t_collection01` | 切块向量 + BM25 |
 
 ```powershell
-# 将文件放入 datas/raw 后
+# 本地 raw → md → 追加入库
 python documents/mineru_batch.py --ingest
-```
 
-### 远程 URL（MinerU 拉 PDF）
-
-```powershell
+# 远程 PDF URL
 python documents/mineru_batch.py --url "https://arxiv.org/pdf/XXXX.XXXXX.pdf" --name "arxiv_XXXX.XXXXX.pdf" --ingest
-```
 
-### 半导体主题抓取（arXiv FEOL 包）
-
-```powershell
-python documents/topic_crawl.py --limit 5 --dry-run
+# 主题抓取
 python documents/topic_crawl.py --limit 5 --ingest
+
+# 仅入库已有工艺百科
+python -c "from pathlib import Path; from documents.mineru_batch import ingest_markdown_files; print(ingest_markdown_files(sorted(Path('datas/md').glob('primer_*.md'))))"
 ```
 
-默认主题：光刻 / 刻蚀 / 沉积 / CMP / 量测。  
-去重：本地 md 中的 arXiv id + Milvus `filename`。  
-约定详见 `CONTEXT.md`、`docs/adr/0001-semiconductor-corpus-acquisition.md`。
+建表约定：
 
-> **注意**：`documents/milvus_db.py` 中 `create_collection()` 会 **drop 重建**集合。日常扩库请用 `--ingest` **追加**路径，勿误跑全量重建脚本。
+- 日常：`ensure_collection_exists` / `create_connection`（**幂等，不删库**）
+- 清库重建：必须 `create_collection(force=True)` / `recreate_collection(force=True)`
+- 支持工艺分区名（`lithography` / `etch` / …）；检索侧提供 `get_partition_retriever`
+
+详见 `CONTEXT.md`、`docs/adr/0001-*.md`、`docs/adr/0002-quality-sprint-over-enterprise.md`。
 
 ---
 
 ## RAGAS 评测
 
 ```powershell
-python eval/run_ragas.py --limit 2 --metrics fast   # 试跑
-python eval/run_ragas.py --metrics fast             # 全量金标（fast 指标）
-python eval/run_ragas.py                            # 含 context_recall / precision
+python eval/run_ragas.py --limit 2 --metrics fast
+python eval/run_ragas.py --metrics fast --out eval/ragas_report.json
 ```
 
-- 金标：`eval/gold_set.json`（`question` + `ground_truth`）
-- 报告：`eval/ragas_report.json`
-- 裁判模型：DeepSeek（`temperature=0`）；Embedding：DashScope  
-- DeepSeek 仅支持 `n=1`，脚本已将 `AnswerRelevancy(strictness=1)`
-
-更多说明见 [`eval/README.md`](eval/README.md)。
+- 金标：`eval/gold_set.json`（约 15 题）
+- 报告含 `faithfulness`、`answer_relevancy`、`web_fallback_rate`
+- DeepSeek 裁判需 `n=1`；脚本已设 `AnswerRelevancy(strictness=1)`
 
 ---
 
 ## 前端多会话
 
 - 左侧新建 / 切换 / 删除会话  
-- 浏览器 `localStorage` 存会话列表与消息；服务端 Redis 按 `session_id` 存多轮记忆  
-- 「清空本会话」只清当前会话，其它会话不受影响  
+- 浏览器 `localStorage` 存 UI 消息；服务端按 `session_id` 存多轮记忆  
+- 「清空本会话」只影响当前会话  
 
 ---
 
-## 配置项摘要
+## 上传 / 同步 GitHub 注意
 
-| 变量 | 说明 |
-|------|------|
-| `DEEPSEEK_API_KEY` | 对话 / 路由 / 打分 / RAGAS 裁判 |
-| `DASHSCOPE_API_KEY` | Embedding |
-| `TAVILY_API_KEY` | 联网搜索 |
-| `MINERU_API_TOKEN` | 云端解析 |
-| `MILVUS_URI` | 默认 `http://127.0.0.1:19530` |
-| `COLLECTION_NAME` | 默认 `t_collection01` |
-| `SESSION_BACKEND` | `auto` / `redis` / `sqlite` / `memory` |
-| `REDIS_URL` | 如 `redis://127.0.0.1:6379/0` |
-| `SESSION_TTL_SECONDS` | Redis 会话 TTL，默认 7 天 |
-
-完整模板：`.env.example`。
-
----
-
-
+- **禁止提交 `.env`**（已在 `.gitignore`）；只用 `.env.example`
+- 大 PDF、私有语料、`eval/ragas_report.json`、本地 db 勿入库
+- 演示语料版权自负；抓取策略不代表生产合规
 
 ---
 
@@ -316,24 +305,24 @@ python eval/run_ragas.py                            # 含 context_recall / preci
 原型已具备主链路，上生产前建议补齐：
 
 1. API 鉴权、CORS 白名单、限流与配额  
-2. 禁止默认 `drop_collection`；入库作业化与审计  
+2. 入库作业化与审计；分区检索与主路径接线完善  
 3. 语料版权合规闸门（当前 ADR 标明演示策略可放宽）  
-4. 多租户 / ACL、结构化可观测性、CI + RAGAS 回归门禁  
+4. 多租户 / ACL、更完整可观测性、CI + RAGAS 回归门禁  
+5. Laya 路由的专项评测与领域微调（可选）
 
 ---
 
 ## 许可证与声明
 
-- 代码用途：学习 / 演示 / 二次开发底座  
-- 第三方服务（DeepSeek、DashScope、MinerU、Tavily、arXiv 等）遵循各自条款与配额  
-- 知识库内容版权由语料提供方负责；演示抓取策略**不代表**生产合规标准  
+- 代码：学习 / 演示 / 二次开发底座  
+- 第三方服务遵循各自条款与配额  
+- 知识库内容版权由语料方负责  
 
 ---
 
 ## 致谢
 
 - [LangChain](https://github.com/langchain-ai/langchain) / [LangGraph](https://github.com/langchain-ai/langgraph)  
-- [Milvus](https://milvus.io/)  
-- [MinerU](https://mineru.net/)  
-- [RAGAS](https://github.com/explodinggradients/ragas)  
+- [Milvus](https://milvus.io/) · [MinerU](https://mineru.net/) · [RAGAS](https://github.com/explodinggradients/ragas)  
+- [Laya](https://huggingface.co/convaiinnovations/laya)（可选 System-1 路由）  
 - DeepSeek / 阿里云百炼 / Tavily  

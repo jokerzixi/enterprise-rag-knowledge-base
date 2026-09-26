@@ -197,30 +197,112 @@
             color: var(--muted);
         }
 
-        .session-del {
-            flex-shrink: 0;
-            width: 28px;
-            height: 28px;
-            border: none;
+        .sidebar-search {
+            width: 100%;
+        }
+
+        #session-search-input {
+            width: 100%;
+            font-family: var(--font-body);
+            font-size: 12px;
+            color: var(--ink);
+            padding: 7px 10px;
+            border: 1px solid var(--line);
             border-radius: 8px;
+            background: #fff;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        #session-search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(13, 122, 111, 0.1);
+        }
+
+        .session-group-header {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--muted);
+            padding: 8px 6px 3px;
+            letter-spacing: 0.04em;
+        }
+
+        .session-actions {
+            display: none;
+            align-items: center;
+            gap: 2px;
+            flex-shrink: 0;
+        }
+
+        .session-item:hover .session-actions,
+        .session-item.active .session-actions {
+            display: inline-flex;
+        }
+
+        .session-action-btn {
+            width: 24px;
+            height: 24px;
+            border: none;
+            border-radius: 6px;
             background: transparent;
             color: var(--muted);
             cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            display: none;
-        }
-
-        .session-item:hover .session-del,
-        .session-item.active .session-del {
+            font-size: 12px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            transition: background 0.15s, color 0.15s;
         }
 
-        .session-del:hover {
+        .session-action-btn:hover {
+            background: #fff;
+            color: var(--accent-deep);
+        }
+
+        .session-action-btn.pinned {
+            color: var(--accent);
+            display: inline-flex !important;
+        }
+
+        .session-action-btn.del:hover {
             background: #fff7f6;
             color: var(--danger);
+        }
+
+        .session-rename-input {
+            width: 100%;
+            font-family: var(--font-body);
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--ink);
+            padding: 2px 4px;
+            border: 1px solid var(--accent);
+            border-radius: 4px;
+            background: #fff;
+            outline: none;
+        }
+
+        #export-btn {
+            font-family: var(--font-body);
+            font-size: 12px;
+            color: var(--ink-soft);
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+            transition: border-color 0.2s, color 0.2s, background 0.2s;
+        }
+
+        #export-btn:hover:not(:disabled) {
+            border-color: var(--accent);
+            color: var(--accent-deep);
+            background: var(--accent-soft);
+        }
+
+        #export-btn:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
         }
 
         .main {
@@ -558,6 +640,9 @@
         <div class="sidebar-top">
             <div class="sidebar-brand"><span>RAG</span> 会话</div>
             <button id="new-chat-btn" type="button">＋ 新建会话</button>
+            <div class="sidebar-search">
+                <input id="session-search-input" type="text" placeholder="🔍 搜索会话或消息..." />
+            </div>
         </div>
         <div class="session-list" id="session-list"></div>
     </aside>
@@ -574,6 +659,7 @@
                     <span class="status-dot"></span>
                     <span>本地服务 · Redis 多会话</span>
                 </div>
+                <button id="export-btn" type="button" title="导出当前会话记录">📥 导出记录</button>
                 <button id="clear-btn" type="button" title="清空当前会话（不影响其它会话）">清空本会话</button>
             </div>
         </header>
@@ -597,6 +683,8 @@
     const shell = document.getElementById('shell');
     const chatBox = document.getElementById('chat-box');
     const sessionListEl = document.getElementById('session-list');
+    const sessionSearchInput = document.getElementById('session-search-input');
+    const exportBtn = document.getElementById('export-btn');
     const currentTitleEl = document.getElementById('current-title');
     const userInput = document.getElementById('user-input');
     const sendBtn = document.getElementById('send-btn');
@@ -609,6 +697,7 @@
     let activeController = null;
     let activeReader = null;
     let running = false;
+    let searchKeyword = '';
     let store = loadStore();
 
     function uid() {
@@ -680,7 +769,26 @@
     }
 
     function formatText(text) {
-        return escapeHtml(text).replace(/\n/g, '<br>');
+        if (!text) return '';
+        let escaped = escapeHtml(text);
+        // 代码块: ```lang\ncode\n```
+        escaped = escaped.replace(/```([a-zA-Z0-9_\-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            return `<pre style="background:#20293a;color:#f8fafc;padding:12px;border-radius:8px;overflow-x:auto;margin:8px 0;font-size:13px;line-height:1.45;"><div style="color:#94a3b8;font-size:11px;margin-bottom:6px;font-family:monospace;text-transform:uppercase;">${lang || 'code'}</div><code>${code.trim()}</code></pre>`;
+        });
+        // 行内代码: `code`
+        escaped = escaped.replace(/`([^`\n]+)`/g, '<code style="background:#edf2f7;color:#0a5c54;padding:2px 5px;border-radius:4px;font-size:13px;font-family:monospace;">$1</code>');
+        // 加粗: **text**
+        escaped = escaped.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+        // 标题: ###, ##, #
+        escaped = escaped.replace(/^### (.*$)/gim, '<h4 style="margin:10px 0 4px;font-size:14.5px;color:var(--ink);">$1</h4>');
+        escaped = escaped.replace(/^## (.*$)/gim, '<h3 style="margin:12px 0 4px;font-size:15.5px;color:var(--ink);">$1</h3>');
+        escaped = escaped.replace(/^# (.*$)/gim, '<h2 style="margin:14px 0 6px;font-size:17px;color:var(--ink);">$1</h2>');
+        // 引用来源标注强调: [1], [2]
+        escaped = escaped.replace(/\[(\d+)\]/g, '<span style="color:var(--accent);font-weight:700;padding:0 2px;">[$1]</span>');
+        // 无序列表: - item
+        escaped = escaped.replace(/^[•\-*] (.*$)/gim, '<div style="display:flex;gap:6px;margin:3px 0 3px 6px;"><span>•</span><span>$1</span></div>');
+        // 换行
+        return escaped.replace(/\n/g, '<br>');
     }
 
     function setRunning(isRunning) {
@@ -816,33 +924,195 @@
             escapeHtml(statusText) + '</span>';
     }
 
+    function getSessionGroup(updatedAt) {
+        const now = new Date();
+        const d = new Date(updatedAt);
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        if (updatedAt >= startOfToday) return '今天';
+        const sevenDaysAgo = startOfToday - 7 * 86400 * 1000;
+        if (updatedAt >= sevenDaysAgo) return '近 7 天';
+        return '更早';
+    }
+
     function renderSessionList() {
         sessionListEl.innerHTML = '';
-        const sorted = [...store.sessions].sort((a, b) => b.updatedAt - a.updatedAt);
-        sorted.forEach((s) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'session-item' + (s.id === store.activeId ? ' active' : '');
-            btn.disabled = running && s.id !== store.activeId;
-            btn.innerHTML =
-                '<div class="session-main">' +
-                '<div class="session-title"></div>' +
-                '<div class="session-time"></div>' +
-                '</div>' +
-                '<span class="session-del" title="删除会话">×</span>';
-            btn.querySelector('.session-title').textContent = s.title || '新会话';
-            btn.querySelector('.session-time').textContent = formatTime(s.updatedAt || Date.now());
+        const keyword = (searchKeyword || '').trim().toLowerCase();
 
-            btn.addEventListener('click', (e) => {
-                if (e.target.closest('.session-del')) {
+        let filtered = store.sessions.filter((s) => {
+            if (!keyword) return true;
+            if ((s.title || '').toLowerCase().includes(keyword)) return true;
+            if (Array.isArray(s.messages) && s.messages.some(m => (m.content || '').toLowerCase().includes(keyword))) {
+                return true;
+            }
+            return false;
+        });
+
+        if (!filtered.length) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'padding: 24px 8px; text-align: center; color: var(--muted); font-size: 12px;';
+            empty.textContent = keyword ? '未匹配到相关会话' : '暂无历史会话';
+            sessionListEl.appendChild(empty);
+            return;
+        }
+
+        const pinnedList = [];
+        const todayList = [];
+        const weekList = [];
+        const earlierList = [];
+
+        filtered.forEach((s) => {
+            if (s.pinned) {
+                pinnedList.push(s);
+            } else {
+                const grp = getSessionGroup(s.updatedAt || Date.now());
+                if (grp === '今天') todayList.push(s);
+                else if (grp === '近 7 天') weekList.push(s);
+                else earlierList.push(s);
+            }
+        });
+
+        const sorter = (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0);
+        pinnedList.sort(sorter);
+        todayList.sort(sorter);
+        weekList.sort(sorter);
+        earlierList.sort(sorter);
+
+        const groups = [
+            { name: '📌 置顶会话', list: pinnedList },
+            { name: '今天', list: todayList },
+            { name: '近 7 天', list: weekList },
+            { name: '更早', list: earlierList }
+        ];
+
+        groups.forEach((g) => {
+            if (!g.list.length) return;
+            const header = document.createElement('div');
+            header.className = 'session-group-header';
+            header.textContent = g.name;
+            sessionListEl.appendChild(header);
+
+            g.list.forEach((s) => {
+                const item = document.createElement('div');
+                item.className = 'session-item' + (s.id === store.activeId ? ' active' : '');
+                item.innerHTML =
+                    '<div class="session-main">' +
+                    '<div class="session-title" title="双击重命名"></div>' +
+                    '<div class="session-time"></div>' +
+                    '</div>' +
+                    '<div class="session-actions">' +
+                    `<button type="button" class="session-action-btn pin ${s.pinned ? 'pinned' : ''}" title="${s.pinned ? '取消置顶' : '置顶会话'}">📌</button>` +
+                    '<button type="button" class="session-action-btn rename" title="重命名会话">✏️</button>' +
+                    '<button type="button" class="session-action-btn del" title="删除会话">×</button>' +
+                    '</div>';
+
+                const titleEl = item.querySelector('.session-title');
+                titleEl.textContent = s.title || '新会话';
+                item.querySelector('.session-time').textContent = formatTime(s.updatedAt || Date.now());
+
+                // 双击重命名
+                titleEl.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    startRenameSession(s, titleEl);
+                });
+
+                // 重命名按钮
+                item.querySelector('.rename').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    startRenameSession(s, titleEl);
+                });
+
+                // 置顶按钮
+                item.querySelector('.pin').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    togglePinSession(s.id);
+                });
+
+                // 删除按钮
+                item.querySelector('.del').addEventListener('click', (e) => {
                     e.stopPropagation();
                     deleteSession(s.id);
-                    return;
-                }
-                switchSession(s.id);
+                });
+
+                item.addEventListener('click', () => {
+                    switchSession(s.id);
+                });
+
+                sessionListEl.appendChild(item);
             });
-            sessionListEl.appendChild(btn);
         });
+    }
+
+    function togglePinSession(id) {
+        const s = store.sessions.find(x => x.id === id);
+        if (!s) return;
+        s.pinned = !s.pinned;
+        s.updatedAt = Date.now();
+        saveStore();
+        renderSessionList();
+    }
+
+    function startRenameSession(session, titleEl) {
+        const currentName = session.title || '新会话';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'session-rename-input';
+        input.value = currentName;
+
+        titleEl.replaceWith(input);
+        input.focus();
+        input.select();
+
+        let finished = false;
+        function finishRename() {
+            if (finished) return;
+            finished = true;
+            const newTitle = input.value.trim() || currentName;
+            session.title = newTitle;
+            session.updatedAt = Date.now();
+            saveStore();
+            if (session.id === store.activeId) {
+                currentTitleEl.textContent = newTitle;
+            }
+            renderSessionList();
+        }
+
+        input.addEventListener('blur', finishRename);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                finishRename();
+            } else if (e.key === 'Escape') {
+                finished = true;
+                renderSessionList();
+            }
+        });
+    }
+
+    function exportCurrentSession() {
+        const active = getActive();
+        if (!active || !active.messages || !active.messages.length) {
+            alert('当前会话暂无问答记录可导出。');
+            return;
+        }
+
+        let mdContent = `# 会话记录：${active.title || '半导体知识库问答'}\n\n`;
+        mdContent += `- **导出时间**：${new Date().toLocaleString('zh-CN')}\n`;
+        mdContent += `- **会话 ID**：\`${active.id}\`\n\n---\n\n`;
+
+        active.messages.forEach((m) => {
+            const role = m.role === 'user' ? '👤 用户' : '🤖 知识库助手';
+            mdContent += `### ${role} (${m.time || '未知时间'})\n\n${m.content}\n\n---\n\n`;
+        });
+
+        const blob = new Blob([mdContent], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const safeTitle = (active.title || 'chat').replace(/[\\/:*?"<>|]/g, '_');
+        a.href = url;
+        a.download = `${safeTitle}_${new Date().toISOString().slice(0, 10)}.md`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     function switchSession(id) {
@@ -1057,7 +1327,12 @@
     stopBtn.addEventListener('click', () => stopGeneration());
     clearBtn.addEventListener('click', () => clearConversation());
     newChatBtn.addEventListener('click', () => createSession());
+    exportBtn.addEventListener('click', () => exportCurrentSession());
     sidebarToggle.addEventListener('click', () => shell.classList.toggle('sidebar-open'));
+    sessionSearchInput.addEventListener('input', (e) => {
+        searchKeyword = e.target.value;
+        renderSessionList();
+    });
     userInput.addEventListener('input', autoResize);
     userInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {

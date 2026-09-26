@@ -15,6 +15,9 @@
   - faithfulness      答案是否忠实于检索上下文（防幻觉）
   - answer_relevancy  答案与问题的相关性
   - context_recall    检索上下文是否覆盖标准答案要点（需 ground_truth）
+
+报告额外 KPI：
+  - web_fallback_rate 金标题中走 Tavily 联网的占比（来自 searched_web）
 """
 
 from __future__ import annotations
@@ -202,14 +205,34 @@ def main():
         summary = {}
         df = None
 
+    n = len(meta) or 1
+    web_hits = sum(1 for m in meta if m.get("searched_web"))
+    web_fallback_rate = web_hits / n
+    kpi = {
+        "n_questions": len(meta),
+        "web_fallback_count": web_hits,
+        "web_fallback_rate": web_fallback_rate,
+        "baseline_hint": {
+            "faithfulness": 0.81,
+            "answer_relevancy": 0.83,
+            "note": "一周质量冲刺前 fast 基线（约值）",
+        },
+    }
+    summary_with_kpi = {**summary, "web_fallback_rate": web_fallback_rate}
+
     print("\n======== RAGAS 平均分 ========")
     for k, v in summary.items():
         print(f"  {k}: {v:.4f}")
+    print("\n======== 质量 KPI ========")
+    print(f"  n_questions: {kpi['n_questions']}")
+    print(f"  web_fallback_count: {web_hits}")
+    print(f"  web_fallback_rate: {web_fallback_rate:.4f}")
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "summary": summary,
+        "summary": summary_with_kpi,
+        "kpi": kpi,
         "meta": meta,
         "rows": df.to_dict(orient="records") if df is not None else None,
     }
