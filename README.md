@@ -287,25 +287,7 @@ python eval/run_ragas.py --metrics fast --out eval/ragas_report.json
 
 ---
 
-## 上传 / 同步 GitHub 注意
 
-- **禁止提交 `.env`**（已在 `.gitignore`）；只用 `.env.example`
-- 大 PDF、私有语料、`eval/ragas_report.json`、本地 db 勿入库
-- 演示语料版权自负；抓取策略不代表生产合规
-
----
-
-## 企业化差距（已知）
-
-原型已具备主链路，上生产前建议补齐：
-
-1. API 鉴权、CORS 白名单、限流与配额  
-2. 入库作业化与审计；分区检索与主路径接线完善  
-3. 语料版权合规闸门（当前 ADR 标明演示策略可放宽）  
-4. 多租户 / ACL、更完整可观测性、CI + RAGAS 回归门禁  
-5. Laya 路由的专项评测与领域微调（可选）
-
----
 
 ## 许可证与声明
 
@@ -315,9 +297,3 @@ python eval/run_ragas.py --metrics fast --out eval/ragas_report.json
 
 ---
 
-## 致谢
-
-- [LangChain](https://github.com/langchain-ai/langchain) / [LangGraph](https://github.com/langchain-ai/langgraph)  
-- [Milvus](https://milvus.io/) · [MinerU](https://mineru.net/) · [RAGAS](https://github.com/explodinggradients/ragas)  
-- [Laya](https://huggingface.co/convaiinnovations/laya)（可选 System-1 路由）  
-- DeepSeek / 阿里云百炼 / Tavily  
