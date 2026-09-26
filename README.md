@@ -93,34 +93,6 @@ flowchart TD
 
 ---
 
-## 目录结构
-
-```text
-RAG_PROJECT/
-├── main.py                 # FastAPI：/chat、/chat/stream、/health、/metrics
-├── index.html              # 多会话 Web UI
-├── requirements.txt
-├── CONTEXT.md              # 领域术语表
-├── docs/
-│   ├── adr/                # 架构决策（语料获取、质量冲刺等）
-│   └── laya_integration_technical_doc.md
-├── prd/                    # 产品 / 技术 / UI 文档（规划向）
-├── laya/                   # Laya 客户端与意图路由（可选）
-├── graph2/                 # Adaptive RAG 主路径
-│   ├── graph_2.py
-│   ├── retriever_node.py
-│   ├── rerank_node.py      # Cross-Encoder 精排
-│   ├── generate_node2.py
-│   └── …
-├── documents/              # 解析 / 安全建表 / 抓取 / 入库
-├── tools/retriever_tools.py
-├── eval/                   # 金标（约 15 题）与 RAGAS
-├── datas/
-│   ├── raw/                # 待解析原始件
-│   └── md/                 # primer_* 工艺百科、MinerU arXiv MD 等
-├── graph/ · agent/         # 早期实验代码
-└── utils/                  # env、日志、会话记忆
-```
 
 ---
 
