@@ -90,7 +90,6 @@ flowchart TD
 | 会话 | Redis（推荐）/ SQLite / 内存降级 |
 | 评测 | RAGAS |
 
-Python 建议：**3.11**，Conda 环境示例：`rag_env`。
 
 ---
 
