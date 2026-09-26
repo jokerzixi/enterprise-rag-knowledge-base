@@ -23,5 +23,9 @@ eval/ragas_report.json
 .cursor/
 .agents/
 
-# 大型原始语料（按需自行管理，勿误传密钥）
-# datas/raw/*.pdf
+# 本地语料与解析产物（版权/知识资产，勿上传；仅保留目录说明 README）
+datas/**
+!datas/raw/
+!datas/raw/README.md
+!datas/md/
+!datas/md/README.md
