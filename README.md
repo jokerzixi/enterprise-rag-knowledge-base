@@ -119,7 +119,6 @@ conda activate rag_env
 cd <项目根目录>
 pip install -r requirements.txt
 pip install "ragas>=0.2.0" datasets redis
-# 可选 Laya 服务端（与主应用分离进程）
 # pip install "laya[serve]"
 ```
 
@@ -171,7 +170,7 @@ python -m http.server 8080
 ```powershell
 # 另开终端
 pip install "laya[serve]"
-$env:LAYA_DEVICE="cuda"   # 或 cpu
+$env:LAYA_DEVICE="cuda"   
 $env:LAYA_PRELOAD="1"
 $env:LAYA_MODELS="multilingual"
 laya-serve
@@ -239,7 +238,7 @@ python eval/run_ragas.py --limit 2 --metrics fast
 python eval/run_ragas.py --metrics fast --out eval/ragas_report.json
 ```
 
-- 金标：`eval/gold_set.json`（约 15 题）
+- 金标：`eval/gold_set.json`
 - 报告含 `faithfulness`、`answer_relevancy`、`web_fallback_rate`
 - DeepSeek 裁判需 `n=1`；脚本已设 `AnswerRelevancy(strictness=1)`
 
