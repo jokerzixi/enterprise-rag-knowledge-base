@@ -101,9 +101,9 @@ flowchart TD
 ### 1. 基础依赖
 
 - Docker Desktop（Milvus）
-- Redis（可选，多会话推荐）
+- Redis
 - Conda / Python 3.11
-- （可选）Laya serve：GPU/CPU 均可
+- Laya serve：GPU
 
 ### 2. 启动 Milvus
 
