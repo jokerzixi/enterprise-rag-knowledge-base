@@ -3,9 +3,6 @@
 面向**半导体工艺 / 设备 / 材料**场景的检索增强问答系统：  
 云端 MinerU 解析 → Milvus 混合检索 →（可选）Laya System-1 快路由 → LangGraph Adaptive RAG（含 Cross-Encoder 精排与纠错熔断；本地不足时 Tavily 联网）→ FastAPI SSE + 多会话 Web UI。
 
-> 定位为**可演示的工程原型**（持久会话、知识库引用、工艺百科语料、RAGAS 评测、可选 Laya 路由）。上生产前请补齐鉴权、限流与合规。
-
-仓库：<https://github.com/jokerzixi/enterprise-rag-knowledge-base>
 
 ---
 
