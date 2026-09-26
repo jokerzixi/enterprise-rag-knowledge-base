@@ -1,11 +1,8 @@
-# RAG 企业知识库 · 半导体 Adaptive RAG
+﻿# RAG 企业知识库 · 半导体 Adaptive RAG
 
 面向**半导体工艺 / 设备 / 材料**场景的检索增强问答系统：  
 云端 MinerU 解析 → Milvus 混合检索 →（可选）Laya System-1 快路由 → LangGraph Adaptive RAG（含 Cross-Encoder 精排与纠错熔断；本地不足时 Tavily 联网）→ FastAPI SSE + 多会话 Web UI。
 
-> 定位为**可演示的工程原型**（持久会话、知识库引用、RAGAS 评测、可选 Laya 路由）。上生产前请补齐鉴权、限流与合规。
-
-仓库：<https://github.com/jokerzixi/enterprise-rag-knowledge-base>
 
 ---
 
@@ -93,34 +90,9 @@ flowchart TD
 | 会话 | Redis（推荐）/ SQLite / 内存降级 |
 | 评测 | RAGAS |
 
-Python 建议：**3.11**，Conda 环境示例：`rag_env`。
 
 ---
 
-## 目录结构
-
-```text
-RAG_PROJECT/
-├── main.py                 # FastAPI：/chat、/chat/stream、/health、/metrics
-├── index.html              # 多会话 Web UI
-├── requirements.txt
-├── .env.example            # 环境变量模板（无密钥；勿提交 .env）
-├── CONTEXT.md              # 领域术语表
-├── docs/
-│   ├── adr/
-│   └── laya_integration_technical_doc.md
-├── prd/
-├── laya/
-├── graph2/
-├── documents/
-├── tools/retriever_tools.py
-├── eval/
-├── datas/
-│   ├── raw/README.md       # 本地原始语料目录说明（具体文件不入库）
-│   └── md/README.md        # 本地 Markdown 目录说明（具体文件不入库）
-├── graph/ · agent/
-└── utils/
-```
 
 ---
 
@@ -129,14 +101,15 @@ RAG_PROJECT/
 ### 1. 基础依赖
 
 - Docker Desktop（Milvus）
-- Redis（可选，多会话推荐）
+- Redis
 - Conda / Python 3.11
-- （可选）Laya serve
+- Laya serve：GPU
 
 ### 2. 启动 Milvus
 
 ```powershell
 docker start milvus-standalone
+# 首次请按 Milvus 官方文档拉起 standalone；默认 gRPC: 127.0.0.1:19530
 ```
 
 ### 3. Python 环境
@@ -146,14 +119,11 @@ conda activate rag_env
 cd <项目根目录>
 pip install -r requirements.txt
 pip install "ragas>=0.2.0" datasets redis
+# pip install "laya[serve]"
 ```
 
-### 4. 配置环境变量
 
-```powershell
-copy .env.example .env
-# 编辑 .env，填入真实 Key（切勿提交到 Git）
-```
+常用项：
 
 | 变量 | 说明 |
 |------|------|
@@ -163,40 +133,74 @@ copy .env.example .env
 | `MINERU_API_TOKEN` | 云端解析 |
 | `MILVUS_URI` / `COLLECTION_NAME` | 向量库 |
 | `SESSION_BACKEND` / `REDIS_URL` | 会话持久化 |
-| `LAYA_ENABLED` | 默认 `false` |
-| `LAYA_SERVER_URL` / `LAYA_MODEL` / `LAYA_CONFIDENCE_MIN` | Laya 路由 |
+| `LAYA_ENABLED` | 默认 `false`；`true` 时启用 Laya 路由 |
+| `LAYA_SERVER_URL` | 默认 `http://127.0.0.1:8000` |
+| `LAYA_MODEL` | 默认 `convaiinnovations/laya-multilingual` |
+| `LAYA_CONFIDENCE_MIN` | 低于此置信度回退 DeepSeek |
+
+完整模板见 `.env.example`。
 
 ---
 
 ## 快速启动
 
 ```powershell
+# 终端 1：后端
 conda activate rag_env
+cd <项目根目录>
 uvicorn main:app --host 127.0.0.1 --port 8001
-# 另开终端
+
+# 终端 2：前端静态页
 python -m http.server 8080
 ```
 
-- Web：http://127.0.0.1:8080/index.html  
-- API：http://127.0.0.1:8001 · Health：http://127.0.0.1:8001/health  
+浏览器：<http://127.0.0.1:8080/index.html>
 
-公网部署请修改 `index.html` 的 `API_BASE`，或 Nginx 同域反代（SSE 关闭 `proxy_buffering`）。
+| 服务 | 地址 |
+|------|------|
+| Web UI | http://127.0.0.1:8080/index.html |
+| API / Docs | http://127.0.0.1:8001 · http://127.0.0.1:8001/docs |
+| Health | http://127.0.0.1:8001/health |
+| Milvus | http://127.0.0.1:19530 |
 
-可选 Laya：`pip install "laya[serve]"` → `laya-serve`，`.env` 设 `LAYA_ENABLED=true`。
+> 部署到公网时请修改 `index.html` 中的 `API_BASE`，或用 Nginx 同域反代 `/chat`（SSE 需关闭 `proxy_buffering`）。
+
+### 可选：启用 Laya 意图路由
+
+```powershell
+# 另开终端
+pip install "laya[serve]"
+$env:LAYA_DEVICE="cuda"   
+$env:LAYA_PRELOAD="1"
+$env:LAYA_MODELS="multilingual"
+laya-serve
+```
+
+`.env` 设置 `LAYA_ENABLED=true` 后重启 uvicorn。日志出现 `Laya 路由到…` 即生效；服务不可用或低置信度时自动降级 DeepSeek。
 
 ---
 
 ## API 说明
 
-- `POST /chat` · `POST /chat/stream`：问答（SSE）  
-- `DELETE /chat/memory/{session_id}`：清空会话记忆  
-- `GET /health` · `GET /metrics`：探活与指标  
+### `POST /chat` · `POST /chat/stream`
+
+请求体：`{ "question": "...", "session_id": "可选" }`
+
+SSE 事件：`session` / `status` / `reset` / `token` / `done` / `aborted` / `error`
+
+### `DELETE /chat/memory/{session_id}`
+
+清空指定会话服务端记忆。
+
+### `GET /health` · `GET /metrics`
+
+组件探活与 Prometheus 风格指标。
 
 ---
 
 ## 语料与入库
 
-**本地语料目录**（`datas/raw/`、`datas/md/`）：仓库内**仅保留目录说明 README**，不包含具体语料文件。示例与业务文档需**自行合规准备**（内部编写或已获授权）；请勿将来源不明或受限知识资产提交到公开仓库。
+**本地语料目录**（`datas/raw/`、`datas/md/`）：仓库内**仅保留目录说明 README**，不包含具体语料文件。示例需**自行合规准备**（内部编写或已获授权）；请勿将来源不明或受限知识资产提交到公开仓库。
 
 | 路径 | 用途 |
 |------|------|
@@ -218,47 +222,44 @@ python documents/topic_crawl.py --limit 5 --ingest
 python -c "from pathlib import Path; from documents.mineru_batch import ingest_markdown_files; print(ingest_markdown_files(sorted(Path('datas/md').glob('*.md'))))"
 ```
 
-建表：日常幂等创建；清库重建须 `force=True`。详见 `CONTEXT.md` 与 `docs/adr/`。
+建表约定：
+
+- 日常：`ensure_collection_exists` / `create_connection`（**幂等，不删库**）
+- 清库重建：必须 `create_collection(force=True)` / `recreate_collection(force=True)`
+- 支持工艺分区名；检索侧提供 `get_partition_retriever`
+
+详见 `CONTEXT.md`、`docs/adr/`。
 
 ---
 
 ## RAGAS 评测
 
 ```powershell
+python eval/run_ragas.py --limit 2 --metrics fast
 python eval/run_ragas.py --metrics fast --out eval/ragas_report.json
 ```
 
-金标：`eval/gold_set.json`。报告含 faithfulness、answer_relevancy、`web_fallback_rate`。
+- 金标：`eval/gold_set.json`
+- 报告含 `faithfulness`、`answer_relevancy`、`web_fallback_rate`
+- DeepSeek 裁判需 `n=1`；脚本已设 `AnswerRelevancy(strictness=1)`
 
 ---
 
-## 上传 / 同步 GitHub 注意
+## 前端多会话
 
-- **禁止提交 `.env`**；只用 `.env.example`
-- **`datas/` 具体语料文件已忽略**，仅保留 `datas/*/README.md`
-- `eval/ragas_report.json`、本地 db 勿入库
-- 语料版权与授权自负
-
----
-
-## 企业化差距（已知）
-
-1. API 鉴权、CORS 白名单、限流与配额  
-2. 入库作业化与审计；分区检索主路径接线  
-3. 语料版权合规闸门  
-4. 多租户 / ACL、CI + RAGAS 门禁  
-5. Laya 路由专项评测与领域微调（可选）  
+- 左侧新建 / 切换 / 删除会话  
+- 浏览器 `localStorage` 存 UI 消息；服务端按 `session_id` 存多轮记忆  
+- 「清空本会话」只影响当前会话  
 
 ---
+
+
 
 ## 许可证与声明
 
 - 代码：学习 / 演示 / 二次开发底座  
-- 第三方服务遵循各自条款  
+- 第三方服务遵循各自条款与配额  
 - 知识库内容版权由语料方负责  
 
 ---
 
-## 致谢
-
-LangChain / LangGraph · Milvus · MinerU · RAGAS · Laya（可选）· DeepSeek / 阿里云百炼 / Tavily  
